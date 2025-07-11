@@ -1,0 +1,158 @@
+{
+  "name": "pin-in-explorer",
+  "displayName": "PinInExplorer",
+  "description": "Pin files, folders, and code bookmarks",
+  "icon": "images/pin.png",
+  "publisher": "tonytian",
+  "version": "1.1.0",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+        "onView:pinnedItems"
+    ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "PinInExplorer",
+      "properties": {
+        "pinInExplorer.logging.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enables or disables logging for the PinInExplorer extension."
+        }
+      }
+    },
+    "commands": [
+            {
+                "command": "pinInExplorer.pin",
+                "title": "Pin"
+            },
+            {
+                "command": "pinInExplorer.unpin",
+                "title": "Unpin"
+            },
+            {
+                "command": "pinInExplorer.unpinFromExplorer",
+                "title": "Unpin"
+            },
+            {
+                "command": "pinInExplorer.togglePin",
+                "title": "Toggle Pin"
+            },
+            {
+                "command": "pinInExplorer.checkPinStatus",
+                "title": "Check Pin Status"
+            },
+            {
+                "command": "pinInExplorer.openItem",
+                "title": "Open",
+                "icon": "$(folder-opened)"
+            },
+            {
+                "command": "pinInExplorer.moveUp",
+                "title": "Move Up",
+                "icon": "$(arrow-up)"
+            },
+            {
+                "command": "pinInExplorer.moveDown",
+                "title": "Move Down",
+                "icon": "$(arrow-down)"
+            },
+            {
+                "command": "pinInExplorer.moveToTop",
+                "title": "Move to Top",
+                "icon": "$(pin)"
+            },
+            {
+                "command": "pinInExplorer.alreadyAtTop",
+                "title": "Already at Top",
+                "icon": "$(pinned)"
+            },
+            {
+                "command": "pinInExplorer.removeFromTop",
+                "title": "Remove from Top",
+                "icon": "$(pin)"
+            }
+        ],
+    "menus": {
+      "explorer/context": [
+        {
+          "when": "resourceScheme == 'file'",
+          "command": "pinInExplorer.togglePin",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "pinInExplorer.moveDown",
+          "when": "view == pinnedItems && (viewItem == 'pinnedFolder' || viewItem == 'pinnedFile' || viewItem == 'pinnedFolderAtTop' || viewItem == 'pinnedFileAtTop')",
+          "group": "inline@97"
+        },
+        {
+          "command": "pinInExplorer.moveUp",
+          "when": "view == pinnedItems && (viewItem == 'pinnedFolder' || viewItem == 'pinnedFile' || viewItem == 'pinnedFolderAtTop' || viewItem == 'pinnedFileAtTop')",
+          "group": "inline@98"
+        },
+        {
+          "command": "pinInExplorer.moveToTop",
+          "when": "view == pinnedItems && (viewItem == 'pinnedFolder' || viewItem == 'pinnedFile')",
+          "group": "inline@99"
+        },
+        {
+          "command": "pinInExplorer.removeFromTop",
+          "when": "view == pinnedItems && (viewItem == 'pinnedFolderAtTop' || viewItem == 'pinnedFileAtTop')",
+          "group": "inline@99"
+        },
+        {
+          "command": "pinInExplorer.openItem",
+          "when": "view == pinnedItems && (viewItem == 'pinnedFolder' || viewItem == 'pinnedFile' || viewItem == 'pinnedFolderAtTop' || viewItem == 'pinnedFileAtTop')",
+          "group": "inline@100"
+        },
+        {
+          "when": "view == pinnedItems && (viewItem == 'pinnedFolder' || viewItem == 'pinnedFile' || viewItem == 'pinnedFolderAtTop' || viewItem == 'pinnedFileAtTop')",
+          "command": "pinInExplorer.unpin",
+          "group": "navigation"
+        }
+      ]
+        },
+    "views": {
+            "explorer": [
+                {
+                    "id": "pinnedItems",
+                    "name": "Pins",
+                    "when": "true",
+                    "group": "navigation@10"
+                }
+            ]
+        }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "^18.x",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "glob": "^11.0.0",
+    "mocha": "^11.7.1",
+    "typescript": "^5.5.0",
+    "ts-loader": "^9.5.0",
+    "webpack": "^5.94.0",
+    "webpack-cli": "^5.1.0"
+  }
+}
