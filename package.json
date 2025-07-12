@@ -7,7 +7,7 @@
   "version": "1.1.0",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/tony-long-xi/PinInExplorer"
   },
   "engines": {
     "vscode": "^1.75.0"
@@ -80,6 +80,48 @@
                 "command": "pinInExplorer.removeFromTop",
                 "title": "Remove from Top",
                 "icon": "$(pin)"
+            },
+            {
+                "command": "pinInExplorer.toggleBookmark",
+                "title": "Toggle Pin"
+            },
+            {
+                "command": "pinInExplorer.removeBookmark",
+                "title": "Unpin"
+            },
+            {
+                "command": "pinInExplorer.openBookmark",
+                "title": "Jump to Bookmark"
+            },
+            {
+                "command": "pinInExplorer.nextBookmark",
+                "title": "Next Bookmark",
+                "icon": "$(arrow-right)"
+            },
+            {
+                "command": "pinInExplorer.previousBookmark",
+                "title": "Previous Bookmark",
+                "icon": "$(arrow-left)"
+            },
+            {
+                "command": "pinInExplorer.nextBookmarkInFile",
+                "title": "Next Bookmark in File",
+                "icon": "$(arrow-down)"
+            },
+            {
+                "command": "pinInExplorer.previousBookmarkInFile",
+                "title": "Previous Bookmark in File",
+                "icon": "$(arrow-up)"
+            },
+            {
+                "command": "pinInExplorer.nextBookmarkFile",
+                "title": "Next File with Bookmark",
+                "icon": "$(arrow-right)"
+            },
+            {
+                "command": "pinInExplorer.previousBookmarkFile",
+                "title": "Previous File with Bookmark",
+                "icon": "$(arrow-left)"
             }
         ],
     "menus": {
@@ -90,25 +132,32 @@
           "group": "navigation"
         }
       ],
+      "editor/context": [
+        {
+          "command": "pinInExplorer.toggleBookmark",
+          "group": "navigation",
+          "when": "editorTextFocus"
+        }
+      ],
       "view/item/context": [
         {
           "command": "pinInExplorer.moveDown",
-          "when": "view == pinnedItems && (viewItem == 'pinnedFolder' || viewItem == 'pinnedFile' || viewItem == 'pinnedFolderAtTop' || viewItem == 'pinnedFileAtTop')",
+          "when": "view == pinnedItems && (viewItem == 'pinnedFolder' || viewItem == 'pinnedFile' || viewItem == 'pinnedFolderAtTop' || viewItem == 'pinnedFileAtTop' || viewItem == 'pinnedBookmark' || viewItem == 'pinnedBookmarkAtTop')",
           "group": "inline@97"
         },
         {
           "command": "pinInExplorer.moveUp",
-          "when": "view == pinnedItems && (viewItem == 'pinnedFolder' || viewItem == 'pinnedFile' || viewItem == 'pinnedFolderAtTop' || viewItem == 'pinnedFileAtTop')",
+          "when": "view == pinnedItems && (viewItem == 'pinnedFolder' || viewItem == 'pinnedFile' || viewItem == 'pinnedFolderAtTop' || viewItem == 'pinnedFileAtTop' || viewItem == 'pinnedBookmark' || viewItem == 'pinnedBookmarkAtTop')",
           "group": "inline@98"
         },
         {
           "command": "pinInExplorer.moveToTop",
-          "when": "view == pinnedItems && (viewItem == 'pinnedFolder' || viewItem == 'pinnedFile')",
+          "when": "view == pinnedItems && (viewItem == 'pinnedFolder' || viewItem == 'pinnedFile' || viewItem == 'pinnedBookmark')",
           "group": "inline@99"
         },
         {
           "command": "pinInExplorer.removeFromTop",
-          "when": "view == pinnedItems && (viewItem == 'pinnedFolderAtTop' || viewItem == 'pinnedFileAtTop')",
+          "when": "view == pinnedItems && (viewItem == 'pinnedFolderAtTop' || viewItem == 'pinnedFileAtTop' || viewItem == 'pinnedBookmarkAtTop')",
           "group": "inline@99"
         },
         {
@@ -120,6 +169,33 @@
           "when": "view == pinnedItems && (viewItem == 'pinnedFolder' || viewItem == 'pinnedFile' || viewItem == 'pinnedFolderAtTop' || viewItem == 'pinnedFileAtTop')",
           "command": "pinInExplorer.unpin",
           "group": "navigation"
+        },
+        {
+          "when": "view == pinnedItems && (viewItem == 'pinnedBookmark' || viewItem == 'pinnedBookmarkAtTop')",
+          "command": "pinInExplorer.removeBookmark",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "pinInExplorer.previousBookmarkFile",
+          "when": "view == pinnedItems",
+          "group": "navigation@1"
+        },
+        {
+          "command": "pinInExplorer.nextBookmarkFile",
+          "when": "view == pinnedItems",
+          "group": "navigation@2"
+        },
+        {
+          "command": "pinInExplorer.previousBookmarkInFile",
+          "when": "view == pinnedItems",
+          "group": "navigation@3"
+        },
+        {
+          "command": "pinInExplorer.nextBookmarkInFile",
+          "when": "view == pinnedItems",
+          "group": "navigation@4"
         }
       ]
         },

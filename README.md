@@ -84,14 +84,24 @@ You can enable debug logging in VSCode settings:
 - Pinned items are saved in workspace state
 - Pin status remains unchanged after restarting VSCode
 
-#### 代码书签 / BookMark
-- 在代码行上右键，选择"Toggle Bookmark"来添加或移除书签
-- 书签会显示在代码行左侧的行号旁边
-- Bookmarks can be added or removed by right-clicking on a line of code and selecting "Toggle Bookmark"
-- Bookmarks are displayed next to the line number on the left side of the code line
+#### 代码书签 / Code Bookmarks
+- **添加书签 / Add Bookmark**: 在代码编辑器中右键选择"Toggle Pin"来添加或移除书签
+- **书签显示 / Bookmark Display**: 书签会显示在Pins视图中，格式为"文件名:行号 - 代码内容"
+- **快速跳转 / Quick Navigation**: 点击书签可直接跳转到对应的代码位置
+- **书签管理 / Bookmark Management**: 支持置顶、移除、删除等操作
+- **自动清理 / Auto Cleanup**: 自动清理不存在文件的书签
 
-- 该功能处于开发中，敬请期待
-- This feature is under development, please wait for the next release.
+- **Add Bookmark**: Right-click in the code editor and select "Toggle Pin" to add or remove bookmarks
+- **Bookmark Display**: Bookmarks are displayed in the Pins view with format "filename:line - code content"
+- **Quick Navigation**: Click on bookmarks to jump directly to the corresponding code position
+- **Bookmark Management**: Support operations like pin to top, remove, delete, etc.
+- **Auto Cleanup**: Automatically clean up bookmarks for non-existent files
+
+**使用方法 / Usage:**
+1. 在代码编辑器中将光标定位到要标记的行 / Position cursor on the line to bookmark in code editor
+2. 右键选择"Toggle Bookmark" / Right-click and select "Toggle Bookmark"
+3. 书签会自动添加到Pins视图中 / Bookmark will be automatically added to Pins view
+4. 点击书签可跳转到对应位置 / Click bookmark to jump to corresponding position
 
 
 ## 开发和发布 / Development and Publishing

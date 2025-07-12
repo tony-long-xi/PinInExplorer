@@ -5,9 +5,15 @@ import { Logger } from './logger';
 
 const PINNED_ITEMS_KEY = 'pinnedItems';
 const PINNED_TOP_ITEMS_KEY = 'pinnedTopItems';
+const BOOKMARKS_KEY = 'bookmarks';
+const BOOKMARKS_TOP_KEY = 'bookmarksTop';
 const STATUS_MESSAGE_DURATION = 1000;
 const CONTEXT_UPDATE_DEBOUNCE_DELAY = 150;
 const FILE_DELETION_DELAY = 100;
+
+// Bookmark decoration types for editor
+let bookmarkDecorationType: vscode.TextEditorDecorationType;
+let activeBookmarkDecorationType: vscode.TextEditorDecorationType;
 
 // Utility function to show status bar message with consistent duration
 const showStatusMessage = (message: string, withIcon: boolean = false): void => {
@@ -18,11 +24,91 @@ const showStatusMessage = (message: string, withIcon: boolean = false): void => 
 // Utility function to get file name from path
 const getFileName = (filePath: string): string => pathModule.basename(filePath);
 
+// Interface for bookmark data
+interface BookmarkData {
+    filePath: string;
+    line: number;
+    character: number;
+    label?: string;
+    timestamp: number;
+}
+
+// Helper function to jump to a bookmark
+const jumpToBookmark = async (bookmark: BookmarkData): Promise<void> => {
+    try {
+        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(bookmark.filePath));
+        const editor = await vscode.window.showTextDocument(document);
+        
+        // Jump to the bookmarked line and character
+        const position = new vscode.Position(bookmark.line, bookmark.character);
+        editor.selection = new vscode.Selection(position, position);
+        editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+        
+        showStatusMessage(`Jumped to bookmark: ${getFileName(bookmark.filePath)}:${bookmark.line + 1}`, true);
+        Logger.log(`Jumped to bookmark: ${bookmark.filePath}:${bookmark.line + 1}`);
+    } catch (error) {
+        Logger.log(`Error jumping to bookmark ${bookmark.filePath}: ${error}`);
+        vscode.window.setStatusBarMessage(`❗ Cannot open bookmark: ${getFileName(bookmark.filePath)}`, STATUS_MESSAGE_DURATION);
+    }
+};
+
+// Global context reference for decoration updates
+let globalContext: vscode.ExtensionContext;
+
+// Function to update bookmark decorations in active editor
+const updateBookmarkDecorations = () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || !globalContext) {
+        return;
+    }
+    
+    const bookmarks = globalContext.workspaceState.get<BookmarkData[]>(BOOKMARKS_KEY, []);
+    const currentFileBookmarks = bookmarks.filter(b => b.filePath === editor.document.uri.fsPath);
+    const currentLine = editor.selection.active.line;
+    
+    // Separate active and normal bookmarks
+    const activeBookmarks: vscode.DecorationOptions[] = [];
+    const normalBookmarks: vscode.DecorationOptions[] = [];
+    
+    currentFileBookmarks.forEach(bookmark => {
+        const decoration = {
+            range: new vscode.Range(bookmark.line, 0, bookmark.line, 0),
+            hoverMessage: `Bookmark: ${bookmark.label}`
+        };
+        
+        if (bookmark.line === currentLine) {
+            activeBookmarks.push(decoration);
+        } else {
+            normalBookmarks.push(decoration);
+        }
+    });
+    
+    // Apply decorations
+    editor.setDecorations(bookmarkDecorationType, normalBookmarks);
+    editor.setDecorations(activeBookmarkDecorationType, activeBookmarks);
+};
+
 export function activate(context: vscode.ExtensionContext) {
+    globalContext = context;
     Logger.initialize(context);
     const extensionId = context.extension.id;
     const extensionVersion = vscode.extensions.getExtension(extensionId)?.packageJSON.version;
     Logger.log(`PinInExplorer version ${extensionVersion} is now active!`);
+
+    // Initialize bookmark decoration types
+    bookmarkDecorationType = vscode.window.createTextEditorDecorationType({
+        gutterIconPath: vscode.Uri.file(pathModule.join(context.extensionPath, 'images', 'bookmark-gutter.svg')),
+        gutterIconSize: 'contain',
+        overviewRulerColor: '#007ACC',
+        overviewRulerLane: vscode.OverviewRulerLane.Right
+    });
+    
+    activeBookmarkDecorationType = vscode.window.createTextEditorDecorationType({
+        gutterIconPath: vscode.Uri.file(pathModule.join(context.extensionPath, 'images', 'bookmark-gutter-active.svg')),
+        gutterIconSize: 'contain',
+        overviewRulerColor: '#FF6B35',
+        overviewRulerLane: vscode.OverviewRulerLane.Right
+    });
 
     const pinnedItemsProvider = new PinnedItemsProvider(context);
     vscode.window.registerTreeDataProvider('pinnedItems', pinnedItemsProvider);
@@ -84,18 +170,25 @@ export function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(fileWatcher);
 
-    // Listen for editor changes to update context
+    // Listen for editor changes to update context and decorations
     // Listen to various events to update context
     context.subscriptions.push(
-        vscode.window.onDidChangeActiveTextEditor(() => updatePinContext()),
+        vscode.window.onDidChangeActiveTextEditor(() => {
+            updatePinContext();
+            updateBookmarkDecorations();
+        }),
         vscode.window.onDidChangeTextEditorSelection((e) => {
             if (e.textEditor === vscode.window.activeTextEditor) {
                 updatePinContext(e.textEditor.document.uri);
+                updateBookmarkDecorations();
             }
         }),
         // Listen to workspace state changes to update context when pins change
         vscode.workspace.onDidChangeConfiguration(() => updatePinContext())
     );
+    
+    // Initial decoration update
+    updateBookmarkDecorations();
 
     // Remove the periodic update as it's not effective for context menu
     // The issue is that VS Code's resourceIsPinned context is global and doesn't
@@ -153,13 +246,25 @@ export function activate(context: vscode.ExtensionContext) {
             showStatusMessage(`Unpinned: ${getFileName(item.path)}`);
         }),
         vscode.commands.registerCommand('pinInExplorer.moveUp', (item: PinnedItem) => {
-            pinnedItemsProvider.moveItem(item.path, 'up');
+            if (item.bookmarkData) {
+                pinnedItemsProvider.moveBookmark(item.bookmarkData, 'up');
+            } else {
+                pinnedItemsProvider.moveItem(item.path, 'up');
+            }
         }),
         vscode.commands.registerCommand('pinInExplorer.moveDown', (item: PinnedItem) => {
-            pinnedItemsProvider.moveItem(item.path, 'down');
+            if (item.bookmarkData) {
+                pinnedItemsProvider.moveBookmark(item.bookmarkData, 'down');
+            } else {
+                pinnedItemsProvider.moveItem(item.path, 'down');
+            }
         }),
         vscode.commands.registerCommand('pinInExplorer.moveToTop', (item: PinnedItem) => {
-            pinnedItemsProvider.moveItem(item.path, 'top');
+            if (item.bookmarkData) {
+                pinnedItemsProvider.moveBookmarkToTop(item.bookmarkData);
+            } else {
+                pinnedItemsProvider.moveItem(item.path, 'top');
+            }
         }),
         vscode.commands.registerCommand('pinInExplorer.openItem', async (item: PinnedItem) => {
             try {
@@ -190,8 +295,342 @@ export function activate(context: vscode.ExtensionContext) {
             // Already at top, no action needed
         }),
         vscode.commands.registerCommand('pinInExplorer.removeFromTop', (item: PinnedItem) => {
-            pinnedItemsProvider.removeFromTop(item.path);
-        })
+            if (item.bookmarkData) {
+                pinnedItemsProvider.removeBookmarkFromTop(item.bookmarkData);
+            } else {
+                pinnedItemsProvider.removeFromTop(item.path);
+            }
+        }),
+        vscode.commands.registerCommand('pinInExplorer.toggleBookmark', () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                vscode.window.showWarningMessage('No active editor found');
+                return;
+            }
+            
+            const document = editor.document;
+            const position = editor.selection.active;
+            const line = position.line;
+            const character = position.character;
+            const filePath = document.uri.fsPath;
+            
+            const bookmarks = context.workspaceState.get<BookmarkData[]>(BOOKMARKS_KEY, []);
+            const existingIndex = bookmarks.findIndex(b => 
+                b.filePath === filePath && b.line === line
+            );
+            
+            if (existingIndex >= 0) {
+                // Remove existing bookmark
+                bookmarks.splice(existingIndex, 1);
+                context.workspaceState.update(BOOKMARKS_KEY, bookmarks);
+                pinnedItemsProvider.refresh();
+                updateBookmarkDecorations();
+                showStatusMessage(`Bookmark removed at line ${line + 1}`);
+                Logger.log(`Bookmark removed: ${filePath}:${line + 1}`);
+            } else {
+                // Add new bookmark
+                const lineText = document.lineAt(line).text.trim();
+                const label = lineText.length > 50 ? lineText.substring(0, 47) + '...' : lineText;
+                
+                const bookmark: BookmarkData = {
+                    filePath,
+                    line,
+                    character,
+                    label: label || `Line ${line + 1}`,
+                    timestamp: Date.now()
+                };
+                
+                bookmarks.push(bookmark);
+                context.workspaceState.update(BOOKMARKS_KEY, bookmarks);
+                pinnedItemsProvider.refresh();
+                updateBookmarkDecorations();
+                showStatusMessage(`Bookmark added at line ${line + 1}`, true);
+                Logger.log(`Bookmark added: ${filePath}:${line + 1}`);
+            }
+        }),
+        vscode.commands.registerCommand('pinInExplorer.removeBookmark', (item: PinnedItem) => {
+            if (item.bookmarkData) {
+                const bookmarks = context.workspaceState.get<BookmarkData[]>(BOOKMARKS_KEY, []);
+                const filteredBookmarks = bookmarks.filter(b => 
+                    !(b.filePath === item.bookmarkData!.filePath && b.line === item.bookmarkData!.line)
+                );
+                context.workspaceState.update(BOOKMARKS_KEY, filteredBookmarks);
+                
+                // Also remove from top bookmarks if present
+                const topBookmarks = context.workspaceState.get<string[]>(BOOKMARKS_TOP_KEY, []);
+                const bookmarkId = `${item.bookmarkData.filePath}:${item.bookmarkData.line}`;
+                const filteredTopBookmarks = topBookmarks.filter(id => id !== bookmarkId);
+                context.workspaceState.update(BOOKMARKS_TOP_KEY, filteredTopBookmarks);
+                
+                pinnedItemsProvider.refresh();
+                showStatusMessage(`Bookmark removed: ${item.bookmarkData.label}`);
+                 Logger.log(`Bookmark removed: ${item.bookmarkData.filePath}:${item.bookmarkData.line + 1}`);
+             }
+         }),
+         vscode.commands.registerCommand('pinInExplorer.openBookmark', async (item: PinnedItem) => {
+             if (item.bookmarkData) {
+                 try {
+                     const document = await vscode.workspace.openTextDocument(item.uri);
+                     const editor = await vscode.window.showTextDocument(document);
+                     
+                     // Jump to the bookmarked line and character
+                     const position = new vscode.Position(item.bookmarkData.line, item.bookmarkData.character);
+                     editor.selection = new vscode.Selection(position, position);
+                     editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+                     
+                     Logger.log(`Jumped to bookmark: ${item.bookmarkData.filePath}:${item.bookmarkData.line + 1}`);
+                 } catch (error) {
+                     Logger.log(`Error opening bookmark ${item.bookmarkData.filePath}: ${error}`);
+                     vscode.window.setStatusBarMessage(`❗ Cannot open bookmark: ${getFileName(item.bookmarkData.filePath)}`, STATUS_MESSAGE_DURATION);
+                 }
+             }
+         }),
+         vscode.commands.registerCommand('pinInExplorer.nextBookmark', () => {
+             const bookmarks = context.workspaceState.get<BookmarkData[]>(BOOKMARKS_KEY, []);
+             if (bookmarks.length === 0) {
+                 vscode.window.showInformationMessage('No bookmarks found');
+                 return;
+             }
+             
+             const editor = vscode.window.activeTextEditor;
+             if (!editor) {
+                 // No active editor, jump to first bookmark
+                 jumpToBookmark(bookmarks[0]);
+                 return;
+             }
+             
+             const currentFile = editor.document.uri.fsPath;
+             const currentLine = editor.selection.active.line;
+             
+             // Find next bookmark after current position
+             let nextBookmark: BookmarkData | undefined;
+             
+             // Sort bookmarks by file path and line number
+             const sortedBookmarks = [...bookmarks].sort((a, b) => {
+                 if (a.filePath !== b.filePath) {
+                     return a.filePath.localeCompare(b.filePath);
+                 }
+                 return a.line - b.line;
+             });
+             
+             // Find current position in sorted list
+             for (let i = 0; i < sortedBookmarks.length; i++) {
+                 const bookmark = sortedBookmarks[i];
+                 if (bookmark.filePath > currentFile || 
+                     (bookmark.filePath === currentFile && bookmark.line > currentLine)) {
+                     nextBookmark = bookmark;
+                     break;
+                 }
+             }
+             
+             // If no next bookmark found, wrap to first
+             if (!nextBookmark) {
+                 nextBookmark = sortedBookmarks[0];
+             }
+             
+             jumpToBookmark(nextBookmark);
+         }),
+         vscode.commands.registerCommand('pinInExplorer.previousBookmark', () => {
+             const bookmarks = context.workspaceState.get<BookmarkData[]>(BOOKMARKS_KEY, []);
+             if (bookmarks.length === 0) {
+                 vscode.window.showInformationMessage('No bookmarks found');
+                 return;
+             }
+             
+             const editor = vscode.window.activeTextEditor;
+             if (!editor) {
+                 // No active editor, jump to last bookmark
+                 jumpToBookmark(bookmarks[bookmarks.length - 1]);
+                 return;
+             }
+             
+             const currentFile = editor.document.uri.fsPath;
+             const currentLine = editor.selection.active.line;
+             
+             // Find previous bookmark before current position
+             let previousBookmark: BookmarkData | undefined;
+             
+             // Sort bookmarks by file path and line number (reverse)
+             const sortedBookmarks = [...bookmarks].sort((a, b) => {
+                 if (a.filePath !== b.filePath) {
+                     return b.filePath.localeCompare(a.filePath);
+                 }
+                 return b.line - a.line;
+             });
+             
+             // Find current position in sorted list
+             for (let i = 0; i < sortedBookmarks.length; i++) {
+                 const bookmark = sortedBookmarks[i];
+                 if (bookmark.filePath < currentFile || 
+                     (bookmark.filePath === currentFile && bookmark.line < currentLine)) {
+                     previousBookmark = bookmark;
+                     break;
+                 }
+             }
+             
+             // If no previous bookmark found, wrap to last
+             if (!previousBookmark) {
+                 previousBookmark = sortedBookmarks[0];
+             }
+             
+             jumpToBookmark(previousBookmark);
+         }),
+         vscode.commands.registerCommand('pinInExplorer.nextBookmarkInFile', () => {
+             const editor = vscode.window.activeTextEditor;
+             if (!editor) {
+                 vscode.window.showWarningMessage('No active editor found');
+                 return;
+             }
+             
+             const currentFile = editor.document.uri.fsPath;
+             const currentLine = editor.selection.active.line;
+             const bookmarks = context.workspaceState.get<BookmarkData[]>(BOOKMARKS_KEY, []);
+             
+             // Filter bookmarks for current file
+             const fileBookmarks = bookmarks.filter(b => b.filePath === currentFile)
+                 .sort((a, b) => a.line - b.line);
+             
+             if (fileBookmarks.length === 0) {
+                 vscode.window.showInformationMessage('No bookmarks in current file');
+                 return;
+             }
+             
+             // Find next bookmark in current file
+             let nextBookmark = fileBookmarks.find(b => b.line > currentLine);
+             
+             // If no next bookmark found, wrap to first
+             if (!nextBookmark) {
+                 nextBookmark = fileBookmarks[0];
+             }
+             
+             jumpToBookmark(nextBookmark);
+         }),
+         vscode.commands.registerCommand('pinInExplorer.previousBookmarkInFile', () => {
+             const editor = vscode.window.activeTextEditor;
+             if (!editor) {
+                 vscode.window.showWarningMessage('No active editor found');
+                 return;
+             }
+             
+             const currentFile = editor.document.uri.fsPath;
+             const currentLine = editor.selection.active.line;
+             const bookmarks = context.workspaceState.get<BookmarkData[]>(BOOKMARKS_KEY, []);
+             
+             // Filter bookmarks for current file
+             const fileBookmarks = bookmarks.filter(b => b.filePath === currentFile)
+                 .sort((a, b) => b.line - a.line); // Reverse sort
+             
+             if (fileBookmarks.length === 0) {
+                 vscode.window.showInformationMessage('No bookmarks in current file');
+                 return;
+             }
+             
+             // Find previous bookmark in current file
+             let previousBookmark = fileBookmarks.find(b => b.line < currentLine);
+             
+             // If no previous bookmark found, wrap to last
+             if (!previousBookmark) {
+                 previousBookmark = fileBookmarks[0];
+             }
+             
+             jumpToBookmark(previousBookmark);
+         }),
+         vscode.commands.registerCommand('pinInExplorer.nextBookmarkFile', () => {
+             const bookmarks = context.workspaceState.get<BookmarkData[]>(BOOKMARKS_KEY, []);
+             if (bookmarks.length === 0) {
+                 vscode.window.showInformationMessage('No bookmarks found');
+                 return;
+             }
+             
+             const editor = vscode.window.activeTextEditor;
+             const currentFile = editor ? editor.document.uri.fsPath : '';
+             
+             // Group bookmarks by file and get first bookmark of each file
+             const fileBookmarksMap = new Map<string, BookmarkData>();
+             bookmarks.forEach(bookmark => {
+                 if (!fileBookmarksMap.has(bookmark.filePath)) {
+                     fileBookmarksMap.set(bookmark.filePath, bookmark);
+                 } else {
+                     const existing = fileBookmarksMap.get(bookmark.filePath)!;
+                     if (bookmark.line < existing.line) {
+                         fileBookmarksMap.set(bookmark.filePath, bookmark);
+                     }
+                 }
+             });
+             
+             // Sort files by path
+             const sortedFiles = Array.from(fileBookmarksMap.keys()).sort();
+             
+             if (sortedFiles.length === 0) {
+                 vscode.window.showInformationMessage('No bookmarks found');
+                 return;
+             }
+             
+             // Find next file after current
+             let nextFile: string | undefined;
+             if (currentFile) {
+                 const currentIndex = sortedFiles.indexOf(currentFile);
+                 if (currentIndex >= 0 && currentIndex < sortedFiles.length - 1) {
+                     nextFile = sortedFiles[currentIndex + 1];
+                 }
+             }
+             
+             // If no next file found or no current file, wrap to first
+             if (!nextFile) {
+                 nextFile = sortedFiles[0];
+             }
+             
+             const targetBookmark = fileBookmarksMap.get(nextFile)!;
+             jumpToBookmark(targetBookmark);
+         }),
+         vscode.commands.registerCommand('pinInExplorer.previousBookmarkFile', () => {
+             const bookmarks = context.workspaceState.get<BookmarkData[]>(BOOKMARKS_KEY, []);
+             if (bookmarks.length === 0) {
+                 vscode.window.showInformationMessage('No bookmarks found');
+                 return;
+             }
+             
+             const editor = vscode.window.activeTextEditor;
+             const currentFile = editor ? editor.document.uri.fsPath : '';
+             
+             // Group bookmarks by file and get first bookmark of each file
+             const fileBookmarksMap = new Map<string, BookmarkData>();
+             bookmarks.forEach(bookmark => {
+                 if (!fileBookmarksMap.has(bookmark.filePath)) {
+                     fileBookmarksMap.set(bookmark.filePath, bookmark);
+                 } else {
+                     const existing = fileBookmarksMap.get(bookmark.filePath)!;
+                     if (bookmark.line < existing.line) {
+                         fileBookmarksMap.set(bookmark.filePath, bookmark);
+                     }
+                 }
+             });
+             
+             // Sort files by path
+             const sortedFiles = Array.from(fileBookmarksMap.keys()).sort();
+             
+             if (sortedFiles.length === 0) {
+                 vscode.window.showInformationMessage('No bookmarks found');
+                 return;
+             }
+             
+             // Find previous file before current
+             let previousFile: string | undefined;
+             if (currentFile) {
+                 const currentIndex = sortedFiles.indexOf(currentFile);
+                 if (currentIndex > 0) {
+                     previousFile = sortedFiles[currentIndex - 1];
+                 }
+             }
+             
+             // If no previous file found or no current file, wrap to last
+             if (!previousFile) {
+                 previousFile = sortedFiles[sortedFiles.length - 1];
+             }
+             
+             const targetBookmark = fileBookmarksMap.get(previousFile)!;
+             jumpToBookmark(targetBookmark);
+         })
     );
 
     context.subscriptions.push({ 
@@ -215,6 +654,11 @@ class PinnedItemsProvider implements vscode.TreeDataProvider<PinnedItem> {
     private updateWorkspaceState(pinnedItems: string[], pinnedTopItems: string[]): void {
         this.context.workspaceState.update(PINNED_ITEMS_KEY, pinnedItems);
         this.context.workspaceState.update(PINNED_TOP_ITEMS_KEY, pinnedTopItems);
+        this._onDidChangeTreeData.fire();
+    }
+
+    // Public method to refresh the tree
+    refresh(): void {
         this._onDidChangeTreeData.fire();
     }
 
@@ -257,19 +701,54 @@ class PinnedItemsProvider implements vscode.TreeDataProvider<PinnedItem> {
             pinnedTopItems = validTopItems;
         }
         
-        // Separate pinned-to-top and normal items
-        const topItems = pinnedItems.filter(item => pinnedTopItems.includes(item));
-        const normalItems = pinnedItems.filter(item => !pinnedTopItems.includes(item));
+        // Get bookmarks
+        const bookmarks = this.context.workspaceState.get<BookmarkData[]>(BOOKMARKS_KEY, []);
+        const topBookmarks = this.context.workspaceState.get<string[]>(BOOKMARKS_TOP_KEY, []);
         
-        // Merge lists with pinned-to-top items first
-        const sortedItems = [...topItems, ...normalItems];
+        // Validate bookmark files and clean up non-existent ones
+        const validBookmarks: BookmarkData[] = [];
+        for (const bookmark of bookmarks) {
+            try {
+                await fs.promises.access(bookmark.filePath);
+                validBookmarks.push(bookmark);
+            } catch {
+                Logger.log(`Removing bookmark for non-existent file: ${bookmark.filePath}`);
+            }
+        }
         
-        const items = await Promise.all(sortedItems.map(async (itemPath, index) => {
+        // Update bookmarks if cleaned up
+        if (validBookmarks.length !== bookmarks.length) {
+            this.context.workspaceState.update(BOOKMARKS_KEY, validBookmarks);
+        }
+        
+        // Create all items (files and bookmarks) with their top-pinned status
+        const allItems: PinnedItem[] = [];
+        
+        // Create file/folder items
+        for (const itemPath of pinnedItems) {
             const uri = vscode.Uri.file(itemPath);
             const isTopPinned = pinnedTopItems.includes(itemPath);
-            return await PinnedItem.create(itemPath, vscode.TreeItemCollapsibleState.None, uri, index, sortedItems.length, isTopPinned);
-        }));
-        return items;
+            const item = await PinnedItem.create(itemPath, vscode.TreeItemCollapsibleState.None, uri, 0, 0, isTopPinned);
+            allItems.push(item);
+        }
+        
+        // Create bookmark items
+        for (const bookmark of validBookmarks) {
+            const uri = vscode.Uri.file(bookmark.filePath);
+            const bookmarkId = `${bookmark.filePath}:${bookmark.line}`;
+            const isTopPinned = topBookmarks.includes(bookmarkId);
+            const item = await PinnedItem.createBookmark(bookmark, vscode.TreeItemCollapsibleState.None, uri, 0, 0, isTopPinned);
+            allItems.push(item);
+        }
+        
+        // Sort items: top-pinned items first, then normal items
+        allItems.sort((a, b) => {
+            if (a.isTopPinned && !b.isTopPinned) return -1;
+            if (!a.isTopPinned && b.isTopPinned) return 1;
+            return 0;
+        });
+        
+        return allItems;
     }
 
     pinItem(itemPath: string) {
@@ -308,34 +787,16 @@ class PinnedItemsProvider implements vscode.TreeDataProvider<PinnedItem> {
     }
 
     moveItem(itemPath: string, direction: 'up' | 'down' | 'top') {
-        let { pinnedItems, pinnedTopItems } = this.getPinnedItemsFromState();
-        
         if (direction === 'top') {
             // Add item to pinned-to-top list
+            let { pinnedItems, pinnedTopItems } = this.getPinnedItemsFromState();
             if (!pinnedTopItems.includes(itemPath)) {
                 pinnedTopItems.push(itemPath);
                 this.updateWorkspaceState(pinnedItems, pinnedTopItems);
             }
         } else {
-            // For move up and down, operate on sorted list
-            const topItems = pinnedItems.filter(item => pinnedTopItems.includes(item));
-            const normalItems = pinnedItems.filter(item => !pinnedTopItems.includes(item));
-            const sortedItems = [...topItems, ...normalItems];
-            const index = sortedItems.indexOf(itemPath);
-            
-            if (index === -1) {
-                return;
-            }
-            
-            if (direction === 'up' && index > 0) {
-                [sortedItems[index], sortedItems[index - 1]] = [sortedItems[index - 1], sortedItems[index]];
-            } else if (direction === 'down' && index < sortedItems.length - 1) {
-                [sortedItems[index], sortedItems[index + 1]] = [sortedItems[index + 1], sortedItems[index]];
-            }
-            
-            // Rebuild pinnedItems array, maintaining original order but applying new arrangement
-            pinnedItems = sortedItems;
-            this.updateWorkspaceState(pinnedItems, pinnedTopItems);
+            // Use unified move logic for mixed items
+            this.moveItemInUnifiedList(direction, itemPath, undefined);
         }
     }
 
@@ -347,6 +808,147 @@ class PinnedItemsProvider implements vscode.TreeDataProvider<PinnedItem> {
             this.updateWorkspaceState(pinnedItems, pinnedTopItems);
         }
     }
+
+    moveBookmarkToTop(bookmarkData: BookmarkData) {
+        const topBookmarks = this.context.workspaceState.get<string[]>(BOOKMARKS_TOP_KEY, []);
+        const bookmarkId = `${bookmarkData.filePath}:${bookmarkData.line}`;
+        
+        if (!topBookmarks.includes(bookmarkId)) {
+            topBookmarks.push(bookmarkId);
+            this.context.workspaceState.update(BOOKMARKS_TOP_KEY, topBookmarks);
+            this._onDidChangeTreeData.fire();
+        }
+    }
+
+    removeBookmarkFromTop(bookmarkData: BookmarkData) {
+        const topBookmarks = this.context.workspaceState.get<string[]>(BOOKMARKS_TOP_KEY, []);
+        const bookmarkId = `${bookmarkData.filePath}:${bookmarkData.line}`;
+        const index = topBookmarks.indexOf(bookmarkId);
+        
+        if (index > -1) {
+            topBookmarks.splice(index, 1);
+            this.context.workspaceState.update(BOOKMARKS_TOP_KEY, topBookmarks);
+            this._onDidChangeTreeData.fire();
+        }
+    }
+
+    moveBookmark(bookmarkData: BookmarkData, direction: 'up' | 'down') {
+        // Use unified move logic for mixed items
+        this.moveItemInUnifiedList(direction, undefined, bookmarkData);
+    }
+
+    private moveItemInUnifiedList(direction: 'up' | 'down', itemPath?: string, bookmarkData?: BookmarkData) {
+        const { pinnedItems, pinnedTopItems } = this.getPinnedItemsFromState();
+        const bookmarks = this.context.workspaceState.get<BookmarkData[]>(BOOKMARKS_KEY, []);
+        const topBookmarks = this.context.workspaceState.get<string[]>(BOOKMARKS_TOP_KEY, []);
+        
+        // Get current unified order from workspace state
+        const unifiedOrder = this.context.workspaceState.get<Array<{type: 'file' | 'bookmark', id: string}>>('unifiedOrder', []);
+        
+        // Create unified list with all items maintaining their order
+        const allItems: Array<{type: 'file' | 'bookmark', data: string | BookmarkData, isTop: boolean, id: string}> = [];
+        
+        // Create ID mappings
+        const fileIds = new Set(pinnedItems);
+        const bookmarkIds = new Set(bookmarks.map(b => `${b.filePath}:${b.line}`));
+        
+        // If unified order is empty or doesn't match current items, rebuild it
+        const currentIds = new Set([...pinnedItems, ...bookmarks.map(b => `${b.filePath}:${b.line}`)]);
+        const orderIds = new Set(unifiedOrder.map(item => item.id));
+        const needsRebuild = unifiedOrder.length === 0 || 
+                            currentIds.size !== orderIds.size || 
+                            ![...currentIds].every(id => orderIds.has(id));
+        
+        let finalOrder: Array<{type: 'file' | 'bookmark', id: string}>;
+        
+        if (needsRebuild) {
+            // Rebuild order: files first, then bookmarks
+            finalOrder = [
+                ...pinnedItems.map(item => ({type: 'file' as const, id: item})),
+                ...bookmarks.map(bookmark => ({type: 'bookmark' as const, id: `${bookmark.filePath}:${bookmark.line}`}))
+            ];
+        } else {
+            // Use existing order, but filter out items that no longer exist
+            finalOrder = unifiedOrder.filter(item => currentIds.has(item.id));
+        }
+        
+        // Build the actual items list based on the order
+        finalOrder.forEach(orderItem => {
+            if (orderItem.type === 'file' && fileIds.has(orderItem.id)) {
+                allItems.push({
+                    type: 'file',
+                    data: orderItem.id,
+                    isTop: pinnedTopItems.includes(orderItem.id),
+                    id: orderItem.id
+                });
+            } else if (orderItem.type === 'bookmark' && bookmarkIds.has(orderItem.id)) {
+                const bookmark = bookmarks.find(b => `${b.filePath}:${b.line}` === orderItem.id)!;
+                allItems.push({
+                    type: 'bookmark',
+                    data: bookmark,
+                    isTop: topBookmarks.includes(orderItem.id),
+                    id: orderItem.id
+                });
+            }
+        });
+        
+        // Sort: top items first, then normal items (but maintain relative order within each group)
+        allItems.sort((a, b) => {
+            if (a.isTop && !b.isTop) return -1;
+            if (!a.isTop && b.isTop) return 1;
+            return 0;
+        });
+        
+        // Find the item to move
+        let targetIndex = -1;
+        if (itemPath) {
+            targetIndex = allItems.findIndex(item => 
+                item.type === 'file' && item.data === itemPath
+            );
+        } else if (bookmarkData) {
+            const bookmarkId = `${bookmarkData.filePath}:${bookmarkData.line}`;
+            targetIndex = allItems.findIndex(item => 
+                item.type === 'bookmark' && item.id === bookmarkId
+            );
+        }
+        
+        if (targetIndex === -1) {
+            return;
+        }
+        
+        // Perform the move
+        if (direction === 'up' && targetIndex > 0) {
+            [allItems[targetIndex], allItems[targetIndex - 1]] = 
+                [allItems[targetIndex - 1], allItems[targetIndex]];
+        } else if (direction === 'down' && targetIndex < allItems.length - 1) {
+            [allItems[targetIndex], allItems[targetIndex + 1]] = 
+                [allItems[targetIndex + 1], allItems[targetIndex]];
+        } else {
+            return; // No move needed
+        }
+        
+        // Save the new unified order
+        const newUnifiedOrder = allItems.map(item => ({type: item.type, id: item.id}));
+        this.context.workspaceState.update('unifiedOrder', newUnifiedOrder);
+        
+        // Rebuild the arrays maintaining the new order
+        const newPinnedItems: string[] = [];
+        const newBookmarks: BookmarkData[] = [];
+        
+        // Extract items in the new order
+        allItems.forEach(item => {
+            if (item.type === 'file') {
+                newPinnedItems.push(item.data as string);
+            } else {
+                newBookmarks.push(item.data as BookmarkData);
+            }
+        });
+        
+        // Update workspace state
+        this.updateWorkspaceState(newPinnedItems, pinnedTopItems);
+        this.context.workspaceState.update(BOOKMARKS_KEY, newBookmarks);
+        this._onDidChangeTreeData.fire();
+    }
 }
 
 class PinnedItem extends vscode.TreeItem {
@@ -356,17 +958,32 @@ class PinnedItem extends vscode.TreeItem {
         public readonly uri: vscode.Uri,
         public readonly index: number,
         public readonly totalCount: number,
-        public readonly isTopPinned: boolean = false
+        public readonly isTopPinned: boolean = false,
+        public readonly bookmarkData?: BookmarkData
     ) {
-        const fileName = pathModule.basename(path);
+        let displayName: string;
+        let tooltip: string;
         
-        // Use filename directly without special markers
-        super(fileName, collapsibleState);
+        if (bookmarkData) {
+            // This is a bookmark item
+            const fileName = pathModule.basename(bookmarkData.filePath);
+            displayName = `${fileName}:${bookmarkData.line + 1} - ${bookmarkData.label}`;
+            tooltip = isTopPinned 
+                ? `📌 Bookmark: ${bookmarkData.filePath}:${bookmarkData.line + 1} (Pinned to Top)\n${bookmarkData.label}` 
+                : `Bookmark: ${bookmarkData.filePath}:${bookmarkData.line + 1}\n${bookmarkData.label}`;
+        } else {
+            // This is a file/folder item
+            const fileName = pathModule.basename(path);
+            displayName = fileName;
+            tooltip = isTopPinned ? `📌 ${path} (Pinned to Top)` : path;
+        }
         
-        this.tooltip = isTopPinned ? `📌 ${path} (Pinned to Top)` : path;
+        super(displayName, collapsibleState);
+        
+        this.tooltip = tooltip;
         this.command = {
-            command: 'pinInExplorer.openAndReveal',
-            title: 'Open and Reveal',
+            command: bookmarkData ? 'pinInExplorer.openBookmark' : 'pinInExplorer.openAndReveal',
+            title: bookmarkData ? 'Jump to Bookmark' : 'Open and Reveal',
             arguments: [this]
         };
     }
@@ -398,6 +1015,37 @@ class PinnedItem extends vscode.TreeItem {
         
         return item;
     }
+
+    static async createBookmark(
+        bookmarkData: BookmarkData,
+        collapsibleState: vscode.TreeItemCollapsibleState,
+        uri: vscode.Uri,
+        index: number,
+        totalCount: number,
+        isTopPinned: boolean = false
+    ): Promise<PinnedItem> {
+        const item = new PinnedItem(bookmarkData.filePath, collapsibleState, uri, index, totalCount, isTopPinned, bookmarkData);
+        
+        try {
+            await fs.promises.access(bookmarkData.filePath);
+            // Use bookmark icon for bookmarks
+            item.iconPath = isTopPinned ? new vscode.ThemeIcon('pinned') : new vscode.ThemeIcon('bookmark');
+            item.contextValue = isTopPinned ? 'pinnedBookmarkAtTop' : 'pinnedBookmark';
+        } catch (error) {
+            item.iconPath = new vscode.ThemeIcon('error');
+            item.description = 'File not found';
+            Logger.log(`Error accessing bookmark file ${bookmarkData.filePath}: ${error}`);
+        }
+        
+        return item;
+    }
 }
 
-export function deactivate() {}
+export function deactivate() {
+    if (bookmarkDecorationType) {
+        bookmarkDecorationType.dispose();
+    }
+    if (activeBookmarkDecorationType) {
+        activeBookmarkDecorationType.dispose();
+    }
+}
