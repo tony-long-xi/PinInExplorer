@@ -4,7 +4,7 @@
   "description": "Pin files, folders, and code bookmarks",
   "icon": "images/pin.png",
   "publisher": "tonytian",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/tony-long-xi/PinInExplorer"
@@ -16,7 +16,7 @@
     "Other"
   ],
   "activationEvents": [
-        "onView:pinnedItems"
+        "onStartupFinished"
     ],
   "main": "./out/extension.js",
   "contributes": {
@@ -53,7 +53,7 @@
             },
             {
                 "command": "pinInExplorer.openItem",
-                "title": "Open",
+                "title": "Open in system explorer",
                 "icon": "$(folder-opened)"
             },
             {

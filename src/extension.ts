@@ -135,21 +135,33 @@ export function activate(context: vscode.ExtensionContext) {
         }
         
         // Set new timer with delay
-        updateContextTimeout = setTimeout(() => {
-            let resourceUri = uri;
-            // If no URI is passed, try to get it from the active editor
-            if (!resourceUri) {
-                resourceUri = vscode.window.activeTextEditor?.document.uri;
-            }
+        updateContextTimeout = setTimeout(async () => {
+            try {
+                let resourceUri = uri;
+                // If no URI is passed, try to get it from the active editor
+                if (!resourceUri) {
+                    resourceUri = vscode.window.activeTextEditor?.document.uri;
+                }
 
-            if (resourceUri) {
-                const isPinned = isUriPinned(resourceUri);
-                vscode.commands.executeCommand('setContext', 'resourceIsPinned', isPinned);
-                Logger.log(`Context updated for ${resourceUri.fsPath}: isPinned=${isPinned}`);
-            } else {
-                // If there's no active editor or URI, we can't determine the pin status, so set to false
-                vscode.commands.executeCommand('setContext', 'resourceIsPinned', false);
-                Logger.log('No active URI, context set to not pinned.');
+                if (resourceUri) {
+                    const isPinned = isUriPinned(resourceUri);
+                    try {
+                        await vscode.commands.executeCommand('setContext', 'resourceIsPinned', isPinned);
+                        Logger.log(`Context updated for ${resourceUri.fsPath}: isPinned=${isPinned}`);
+                    } catch (error: any) {
+                        Logger.log(`Error updating context for ${resourceUri.fsPath}: ${error}`);
+                    }
+                } else {
+                    // If there's no active editor or URI, we can't determine the pin status, so set to false
+                    try {
+                        await vscode.commands.executeCommand('setContext', 'resourceIsPinned', false);
+                        Logger.log('No active URI, context set to not pinned.');
+                    } catch (error: any) {
+                        Logger.log(`Error setting context to not pinned: ${error}`);
+                    }
+                }
+            } catch (error: any) {
+                Logger.log(`Unexpected error in updatePinContext: ${error}`);
             }
         }, CONTEXT_UPDATE_DEBOUNCE_DELAY);
     };
@@ -319,11 +331,15 @@ export function activate(context: vscode.ExtensionContext) {
             if (existingIndex >= 0) {
                 // Remove existing bookmark
                 bookmarks.splice(existingIndex, 1);
-                context.workspaceState.update(BOOKMARKS_KEY, bookmarks);
-                pinnedItemsProvider.refresh();
-                updateBookmarkDecorations();
-                showStatusMessage(`Bookmark removed at line ${line + 1}`);
-                Logger.log(`Bookmark removed: ${filePath}:${line + 1}`);
+                try {
+                    context.workspaceState.update(BOOKMARKS_KEY, bookmarks);
+                    pinnedItemsProvider.refresh();
+                    updateBookmarkDecorations();
+                    showStatusMessage(`Bookmark removed at line ${line + 1}`);
+                    Logger.log(`Bookmark removed: ${filePath}:${line + 1}`);
+                } catch (error: any) {
+                    Logger.log(`Error updating workspace state when removing bookmark: ${error}`);
+                }
             } else {
                 // Add new bookmark
                 const lineText = document.lineAt(line).text.trim();
@@ -338,11 +354,15 @@ export function activate(context: vscode.ExtensionContext) {
                 };
                 
                 bookmarks.push(bookmark);
-                context.workspaceState.update(BOOKMARKS_KEY, bookmarks);
-                pinnedItemsProvider.refresh();
-                updateBookmarkDecorations();
-                showStatusMessage(`Bookmark added at line ${line + 1}`, true);
-                Logger.log(`Bookmark added: ${filePath}:${line + 1}`);
+                try {
+                    context.workspaceState.update(BOOKMARKS_KEY, bookmarks);
+                    pinnedItemsProvider.refresh();
+                    updateBookmarkDecorations();
+                    showStatusMessage(`Bookmark added at line ${line + 1}`, true);
+                    Logger.log(`Bookmark added: ${filePath}:${line + 1}`);
+                } catch (error: any) {
+                    Logger.log(`Error updating workspace state when adding bookmark: ${error}`);
+                }
             }
         }),
         vscode.commands.registerCommand('pinInExplorer.removeBookmark', (item: PinnedItem) => {
@@ -351,17 +371,21 @@ export function activate(context: vscode.ExtensionContext) {
                 const filteredBookmarks = bookmarks.filter(b => 
                     !(b.filePath === item.bookmarkData!.filePath && b.line === item.bookmarkData!.line)
                 );
-                context.workspaceState.update(BOOKMARKS_KEY, filteredBookmarks);
-                
-                // Also remove from top bookmarks if present
-                const topBookmarks = context.workspaceState.get<string[]>(BOOKMARKS_TOP_KEY, []);
-                const bookmarkId = `${item.bookmarkData.filePath}:${item.bookmarkData.line}`;
-                const filteredTopBookmarks = topBookmarks.filter(id => id !== bookmarkId);
-                context.workspaceState.update(BOOKMARKS_TOP_KEY, filteredTopBookmarks);
-                
-                pinnedItemsProvider.refresh();
-                showStatusMessage(`Bookmark removed: ${item.bookmarkData.label}`);
-                 Logger.log(`Bookmark removed: ${item.bookmarkData.filePath}:${item.bookmarkData.line + 1}`);
+                try {
+                    context.workspaceState.update(BOOKMARKS_KEY, filteredBookmarks);
+                    
+                    // Also remove from top bookmarks if present
+                    const topBookmarks = context.workspaceState.get<string[]>(BOOKMARKS_TOP_KEY, []);
+                    const bookmarkId = `${item.bookmarkData.filePath}:${item.bookmarkData.line}`;
+                    const filteredTopBookmarks = topBookmarks.filter(id => id !== bookmarkId);
+                    context.workspaceState.update(BOOKMARKS_TOP_KEY, filteredTopBookmarks);
+                    
+                    pinnedItemsProvider.refresh();
+                    showStatusMessage(`Bookmark removed: ${item.bookmarkData.label}`);
+                    Logger.log(`Bookmark removed: ${item.bookmarkData.filePath}:${item.bookmarkData.line + 1}`);
+                } catch (error: any) {
+                    Logger.log(`Error updating workspace state when removing bookmark: ${error}`);
+                }
              }
          }),
          vscode.commands.registerCommand('pinInExplorer.openBookmark', async (item: PinnedItem) => {
@@ -653,9 +677,13 @@ class PinnedItemsProvider implements vscode.TreeDataProvider<PinnedItem> {
 
     // Helper method to update workspace state and refresh tree
     private updateWorkspaceState(pinnedItems: string[], pinnedTopItems: string[]): void {
-        this.context.workspaceState.update(PINNED_ITEMS_KEY, pinnedItems);
-        this.context.workspaceState.update(PINNED_TOP_ITEMS_KEY, pinnedTopItems);
-        this._onDidChangeTreeData.fire();
+        try {
+            this.context.workspaceState.update(PINNED_ITEMS_KEY, pinnedItems);
+            this.context.workspaceState.update(PINNED_TOP_ITEMS_KEY, pinnedTopItems);
+            this._onDidChangeTreeData.fire();
+        } catch (error: any) {
+            Logger.log(`Error updating workspace state: ${error}`);
+        }
     }
 
     // Public method to refresh the tree
@@ -803,8 +831,12 @@ class PinnedItemsProvider implements vscode.TreeDataProvider<PinnedItem> {
         
         if (!topBookmarks.includes(bookmarkId)) {
             topBookmarks.push(bookmarkId);
-            this.context.workspaceState.update(BOOKMARKS_TOP_KEY, topBookmarks);
-            this._onDidChangeTreeData.fire();
+            try {
+                this.context.workspaceState.update(BOOKMARKS_TOP_KEY, topBookmarks);
+                this._onDidChangeTreeData.fire();
+            } catch (error: any) {
+                Logger.log(`Error updating workspace state when moving bookmark to top: ${error}`);
+            }
         }
     }
 
@@ -815,8 +847,12 @@ class PinnedItemsProvider implements vscode.TreeDataProvider<PinnedItem> {
         
         if (index > -1) {
             topBookmarks.splice(index, 1);
-            this.context.workspaceState.update(BOOKMARKS_TOP_KEY, topBookmarks);
-            this._onDidChangeTreeData.fire();
+            try {
+                this.context.workspaceState.update(BOOKMARKS_TOP_KEY, topBookmarks);
+                this._onDidChangeTreeData.fire();
+            } catch (error: any) {
+                Logger.log(`Error updating workspace state when removing bookmark from top: ${error}`);
+            }
         }
     }
 
