@@ -4,7 +4,7 @@
   "description": "Pin files, folders, and code bookmarks",
   "icon": "images/pin.png",
   "publisher": "tonytian",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/tony-long-xi/PinInExplorer"
@@ -58,12 +58,12 @@
             },
             {
                 "command": "pinInExplorer.moveUp",
-                "title": "Move Up",
+                "title": "Up",
                 "icon": "$(arrow-up)"
             },
             {
                 "command": "pinInExplorer.moveDown",
-                "title": "Move Down",
+                "title": "Down",
                 "icon": "$(arrow-down)"
             },
             {
