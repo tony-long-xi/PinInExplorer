@@ -24,8 +24,9 @@ https://github.com/tony-long-xi/PinInExplorer
 - Bookmarks can be added or removed by right-clicking on a line of code and selecting "Toggle Pin"
 - Bookmarks are displayed next to the line number on the left side of the code line
 
-
-
+#### 文件夹焦点 / Folder Focus
+- **自动焦点切换 / Auto Focus Switch**: 当删除文件后（文件夹内的最后一个文件），如果其父文件夹变为空，会自动将资源管理器焦点切换到该文件夹
+- **Auto Focus Switch**: When a file is deleted(the last one) and its parent folder becomes empty, the explorer focus will automatically switch to that folder
 
 ### MIT License
 

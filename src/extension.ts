@@ -10,6 +10,7 @@ const BOOKMARKS_TOP_KEY = 'bookmarksTop';
 const STATUS_MESSAGE_DURATION = 1000;
 const CONTEXT_UPDATE_DEBOUNCE_DELAY = 150;
 const FILE_DELETION_DELAY = 100;
+const FOLDER_FOCUS_ENABLED_KEY = 'folderFocusEnabled';
 
 // Bookmark decoration types for editor
 let bookmarkDecorationType: vscode.TextEditorDecorationType;
@@ -179,15 +180,70 @@ export function activate(context: vscode.ExtensionContext) {
     // Initial context update
     updatePinContext();
 
+
     // Add file system watcher to monitor file changes within workspace
     const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*', false, true, false);
     fileWatcher.onDidDelete((uri) => {
         // Handle file deletion asynchronously to avoid blocking main thread
         setTimeout(() => {
             pinnedItemsProvider.removeDeletedFile(uri.fsPath);
+            // Handle folder focus functionality if enabled
+            handleFileDeletionForFolderFocus(uri.fsPath);
         }, FILE_DELETION_DELAY);
     });
     context.subscriptions.push(fileWatcher);
+
+    // Folder focus functionality
+    const isFolderFocusEnabled = (): boolean => {
+        return context.workspaceState.get<boolean>(FOLDER_FOCUS_ENABLED_KEY, false);
+    };
+
+    const updateFolderFocusContext = async (): Promise<void> => {
+        try {
+            const enabled = isFolderFocusEnabled();
+            await vscode.commands.executeCommand('setContext', 'pinInExplorer.folderFocusEnabled', enabled);
+        } catch (error) {
+            Logger.log(`Error updating folder focus context: ${error}`);
+        }
+    };
+
+    // Handle file deletion for folder focus feature
+    const handleFileDeletionForFolderFocus = async (deletedFilePath: string): Promise<void> => {
+        if (!isFolderFocusEnabled()) {
+            return;
+        }
+
+        try {
+            const parentDir = pathModule.dirname(deletedFilePath);
+            
+            // Check if parent directory exists and is empty
+            const stats = await fs.promises.stat(parentDir).catch(() => null);
+            if (!stats || !stats.isDirectory()) {
+                return;
+            }
+
+            const files = await fs.promises.readdir(parentDir).catch(() => []);
+            
+            // If directory is empty or only contains hidden files/directories
+            const visibleFiles = files.filter(file => !file.startsWith('.'));
+            if (visibleFiles.length === 0) {
+                // Focus on the parent folder in explorer
+                setTimeout(async () => {
+                    try {
+                        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(parentDir));
+                        Logger.log(`Focused on empty folder: ${parentDir}`);
+                    } catch (error) {
+                        Logger.log(`Error focusing on folder ${parentDir}: ${error}`);
+                    }
+                }, 50); // Small delay to ensure file deletion is processed
+            }
+        } catch (error) {
+            Logger.log(`Error in handleFileDeletionForFolderFocus: ${error}`);
+        }
+    };
+
+    // Initialize folder focus context
+    updateFolderFocusContext();
 
     // Listen to various events to update context and decorations
     context.subscriptions.push(
@@ -381,6 +437,8 @@ export function activate(context: vscode.ExtensionContext) {
                     context.workspaceState.update(BOOKMARKS_TOP_KEY, filteredTopBookmarks);
                     
                     pinnedItemsProvider.refresh();
+                    // Update bookmark decorations to remove the gutter icon
+                    updateBookmarkDecorations();
                     showStatusMessage(`Bookmark removed: ${item.bookmarkData.label}`);
                     Logger.log(`Bookmark removed: ${item.bookmarkData.filePath}:${item.bookmarkData.line + 1}`);
                 } catch (error: any) {
@@ -655,6 +713,46 @@ export function activate(context: vscode.ExtensionContext) {
             
             const targetBookmark = fileBookmarksMap.get(previousFile)!;
             jumpToBookmark(targetBookmark);
+        }),
+        // Toggle folder focus feature (enable)
+        vscode.commands.registerCommand('pinInExplorer.toggleFolderFocus', async () => {
+            const currentState = isFolderFocusEnabled();
+            const newState = !currentState;
+            
+            try {
+                await context.workspaceState.update(FOLDER_FOCUS_ENABLED_KEY, newState);
+                await updateFolderFocusContext();
+                
+                const statusMessage = newState 
+                    ? 'Keep Folder focus on last file deletion: Enabled' 
+                    : 'Keep Folder focus on last file deletion: Disabled';
+                showStatusMessage(statusMessage, newState);
+                
+                Logger.log(`Folder focus feature ${newState ? 'enabled' : 'disabled'}`);
+            } catch (error) {
+                Logger.log(`Error toggling folder focus: ${error}`);
+                vscode.window.showErrorMessage('Failed to toggle folder focus feature');
+            }
+        }),
+        // Toggle folder focus feature (disable)
+        vscode.commands.registerCommand('pinInExplorer.toggleFolderFocusDisable', async () => {
+            const currentState = isFolderFocusEnabled();
+            const newState = !currentState;
+            
+            try {
+                await context.workspaceState.update(FOLDER_FOCUS_ENABLED_KEY, newState);
+                await updateFolderFocusContext();
+                
+                const statusMessage = newState 
+                    ? 'Folder focus on file deletion: Enabled' 
+                    : 'Folder focus on file deletion: Disabled';
+                showStatusMessage(statusMessage, newState);
+                
+                Logger.log(`Folder focus feature ${newState ? 'enabled' : 'disabled'}`);
+            } catch (error) {
+                Logger.log(`Error toggling folder focus: ${error}`);
+                vscode.window.showErrorMessage('Failed to toggle folder focus feature');
+            }
         })
     );
 
@@ -664,10 +762,31 @@ export function activate(context: vscode.ExtensionContext) {
             if (updateContextTimeout) {
                 clearTimeout(updateContextTimeout);
             }
-            Logger.dispose();
-        }
-    });
-}
+            
+            // Dispose file watcher
+            if (fileWatcher) {
+                fileWatcher.dispose();
+                Logger.log('File watcher disposed');
+            }
+            
+            // Dispose bookmark decoration types
+            if (bookmarkDecorationType) {
+                bookmarkDecorationType.dispose();
+                Logger.log('Bookmark decoration type disposed');
+            }
+            if (activeBookmarkDecorationType) {
+                activeBookmarkDecorationType.dispose();
+                Logger.log('Active bookmark decoration type disposed');
+            }
+            
+            // Clear global context reference
+            globalContext = undefined as any;
+            
+            Logger.log('Extension resources cleaned up successfully');
+             Logger.dispose();
+         }
+     });
+ }
 
 class PinnedItemsProvider implements vscode.TreeDataProvider<PinnedItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<PinnedItem | undefined | null | void> = new vscode.EventEmitter<PinnedItem | undefined | null | void>();
