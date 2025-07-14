@@ -4,7 +4,7 @@
   "description": "Pin files, folders, and code bookmarks",
   "icon": "images/pin.png",
   "publisher": "tonytian",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "license": "MIT",
   "keywords": [
     "pin",

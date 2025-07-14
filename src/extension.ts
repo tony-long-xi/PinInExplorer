@@ -336,7 +336,10 @@ export function activate(context: vscode.ExtensionContext) {
                 // Open the folder containing the file in system file explorer
                 const stats = await fs.promises.stat(item.path);
                 const folderPath = stats.isDirectory() ? item.path : pathModule.dirname(item.path);
-                vscode.env.openExternal(vscode.Uri.file(folderPath));
+                Logger.log(`folderPath:  ${folderPath}: ${vscode.Uri.file(folderPath)}`);
+                //vscode.env.openExternal(vscode.Uri.file(folderPath));
+
+                await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(folderPath));
             } catch (error) {
                 Logger.log(`Error opening item ${item.path}: ${error}`);
                 vscode.window.setStatusBarMessage(`❗ Cannot open file: ${getFileName(item.path)}`, STATUS_MESSAGE_DURATION);
