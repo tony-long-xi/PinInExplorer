@@ -1167,6 +1167,9 @@ class PinnedItem extends vscode.TreeItem {
         } catch (error) {
             item.iconPath = new vscode.ThemeIcon('error');
             item.description = 'Path not found';
+            // Keep contextValue so that the item still shows its context menu
+            // (e.g. unpin/delete) even when the file/folder no longer exists.
+            item.contextValue = isTopPinned ? 'pinnedFileAtTop' : 'pinnedFile';
             Logger.log(`Error accessing file stats for ${path}: ${error}`);
         }
         
@@ -1191,6 +1194,9 @@ class PinnedItem extends vscode.TreeItem {
         } catch (error) {
             item.iconPath = new vscode.ThemeIcon('error');
             item.description = 'File not found';
+            // Keep contextValue so that the item still shows its context menu
+            // (e.g. remove bookmark) even when the file no longer exists.
+            item.contextValue = isTopPinned ? 'pinnedBookmarkAtTop' : 'pinnedBookmark';
             Logger.log(`Error accessing bookmark file ${bookmarkData.filePath}: ${error}`);
         }
         
